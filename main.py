@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException
 from pyrogram import Client
-from pyrogram.types import Message
 from pydantic import BaseModel
 import base64
 import os
@@ -12,13 +11,12 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+# Конфигурация
 MY_SESSION = os.getenv("MY_SESSION_STRING")
-MY_CHANNEL_ID = int(os.getenv("MY_CHANNEL_ID", "-1001234567890"))  # Твой приватный канал
+MY_CHANNEL_ID = int(os.getenv("MY_CHANNEL_ID", "-1001234567890"))
+API_ID = int(os.getenv("API_ID", "0"))
+API_HASH = os.getenv("API_HASH", "")
 
-class FileRequest(BaseModel):
-    file_id: str
-    bot_token: str
-    
 class ForwardRequest(BaseModel):
     chat_id: int
     message_id: int
@@ -29,7 +27,7 @@ async def root():
     return {
         "message": "Telegram File API", 
         "status": "working",
-        "endpoints": ["/api/get_file", "/api/forward_and_download"]
+        "endpoints": ["/api/forward_and_download"]
     }
 
 @app.post("/api/forward_and_download")
@@ -38,12 +36,14 @@ async def forward_and_download(request: ForwardRequest):
     
     logger.info(f"Пересылка сообщения {request.message_id} из чата {request.chat_id}")
     
-    if not MY_SESSION:
-        raise HTTPException(status_code=500, detail="Session не настроена")
+    if not MY_SESSION or not API_ID or not API_HASH:
+        raise HTTPException(status_code=500, detail="Конфигурация не настроена")
     
-    # Создаём бота для пересылки
+    # Создаём бота для пересылки с API credentials
     bot = Client(
         name="forward_bot",
+        api_id=API_ID,
+        api_hash=API_HASH,
         bot_token=request.bot_token,
         in_memory=True
     )
@@ -52,13 +52,18 @@ async def forward_and_download(request: ForwardRequest):
     userbot = Client(
         name="my_userbot",
         session_string=MY_SESSION,
+        api_id=API_ID,
+        api_hash=API_HASH,
         in_memory=True
     )
     
     try:
         # Запускаем обоих
         await bot.start()
+        logger.info("Бот запущен")
+        
         await userbot.start()
+        logger.info("Userbot запущен")
         
         # Пересылаем сообщение в наш канал
         forwarded = await bot.forward_messages(
@@ -77,10 +82,13 @@ async def forward_and_download(request: ForwardRequest):
         
         if message.video:
             file_id = message.video.file_id
+            filename = message.video.file_name or "video.mp4"
         elif message.document:
             file_id = message.document.file_id
+            filename = message.document.file_name or "file"
         elif message.photo:
             file_id = message.photo.file_id
+            filename = "photo.jpg"
         else:
             raise HTTPException(status_code=400, detail="Нет медиа в сообщении")
         
@@ -90,6 +98,7 @@ async def forward_and_download(request: ForwardRequest):
         # Удаляем переслаанное сообщение
         await userbot.delete_messages(MY_CHANNEL_ID, forwarded.id)
         
+        # Останавливаем клиентов
         await bot.stop()
         await userbot.stop()
         
@@ -100,21 +109,20 @@ async def forward_and_download(request: ForwardRequest):
             return {
                 "status": "ok",
                 "file_data": base64.b64encode(data).decode(),
-                "file_size": len(data)
+                "file_size": len(data),
+                "filename": filename
             }
+        else:
+            raise HTTPException(status_code=400, detail="Файл не скачался")
             
     except Exception as e:
         logger.error(f"Ошибка: {str(e)}")
-        await bot.stop()
-        await userbot.stop()
+        try:
+            await bot.stop()
+        except:
+            pass
+        try:
+            await userbot.stop()
+        except:
+            pass
         raise HTTPException(status_code=400, detail=str(e))
-
-@app.post("/api/get_file")
-async def get_file(request: FileRequest):
-    """Старый метод для обратной совместимости"""
-    return {
-        "status": "error",
-        "message": "Используйте /api/forward_and_download",
-        "file_data": "",
-        "file_size": 0
-    }

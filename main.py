@@ -27,7 +27,23 @@ async def root():
     return {
         "message": "Telegram File API", 
         "status": "working",
-        "endpoints": ["/api/forward_and_download"]
+        "endpoints": [
+            "/api/forward_and_download",
+            "/api/status"
+        ]
+    }
+
+@app.get("/api/status")
+async def status():
+    """Проверка статуса конфигурации"""
+    return {
+        "status": "ok",
+        "config": {
+            "session_configured": bool(MY_SESSION),
+            "api_id_configured": bool(API_ID),
+            "api_hash_configured": bool(API_HASH),
+            "channel_id": MY_CHANNEL_ID
+        }
     }
 
 @app.post("/api/forward_and_download")

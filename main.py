@@ -39,6 +39,9 @@ async def forward_and_download(request: ForwardRequest):
     if not MY_SESSION or not API_ID or not API_HASH:
         raise HTTPException(status_code=500, detail="Конфигурация не настроена")
     
+    # Проверяем конфигурацию
+    logger.info(f"API_ID: {API_ID}, API_HASH: {'есть' if API_HASH else 'нет'}")
+    
     # Создаём бота для пересылки с API credentials
     bot = Client(
         name="forward_bot",
@@ -57,12 +60,17 @@ async def forward_and_download(request: ForwardRequest):
         in_memory=True
     )
     
+    bot_started = False
+    userbot_started = False
+    
     try:
         # Запускаем обоих
         await bot.start()
+        bot_started = True
         logger.info("Бот запущен")
         
         await userbot.start()
+        userbot_started = True
         logger.info("Userbot запущен")
         
         # Пересылаем сообщение в наш канал
@@ -99,8 +107,10 @@ async def forward_and_download(request: ForwardRequest):
         await userbot.delete_messages(MY_CHANNEL_ID, forwarded.id)
         
         # Останавливаем клиентов
-        await bot.stop()
-        await userbot.stop()
+        if bot_started:
+            await bot.stop()
+        if userbot_started:
+            await userbot.stop()
         
         if file_bytes and file_bytes.getvalue():
             data = file_bytes.getvalue()
@@ -117,12 +127,14 @@ async def forward_and_download(request: ForwardRequest):
             
     except Exception as e:
         logger.error(f"Ошибка: {str(e)}")
-        try:
-            await bot.stop()
-        except:
-            pass
-        try:
-            await userbot.stop()
-        except:
-            pass
+        if bot_started:
+            try:
+                await bot.stop()
+            except:
+                pass
+        if userbot_started:
+            try:
+                await userbot.stop()
+            except:
+                pass
         raise HTTPException(status_code=400, detail=str(e))
